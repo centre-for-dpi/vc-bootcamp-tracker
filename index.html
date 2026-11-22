@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bootcamp · Tracker en vivo</title>
+<title>Bootcamp · Live Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;0,9..144,900;1,9..144,300&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -37,7 +37,10 @@ canvas{position:fixed;inset:0;z-index:0;pointer-events:none}
 .logos img.ok{display:block}
 .logo-sep{width:48px;height:1px;background:rgba(0,0,0,.15);display:none}
 .logo-sep.ok{display:block}
-.t-logo{font-family:'Fraunces',serif;font-size:17px;font-weight:700;color:var(--gold-text);flex:1;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.t-logo{font-family:'Fraunces',serif;font-size:19px;font-weight:700;line-height:1.15;color:var(--gold-text);letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-meta{font-size:12px;font-weight:600;line-height:1.2;color:var(--text2);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-meta:empty{display:none}
 .t-live{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--teal-text);letter-spacing:.1em;text-transform:uppercase;padding:7px 16px;background:rgba(31,212,160,.12);border:1px solid rgba(31,212,160,.3);border-radius:20px;flex-shrink:0}
 .t-live.stale{color:var(--orange-text);background:rgba(255,160,107,.14);border-color:rgba(255,160,107,.35)}
 .t-dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:blink 1.8s infinite}
@@ -218,7 +221,10 @@ body.fs.idle, body.fs.idle *{cursor:none !important}
 <div class="shell">
 
   <div class="topbar">
-    <div class="t-logo" id="t-logo">Bootcamp</div>
+    <div class="t-title">
+      <div class="t-logo" id="t-logo">Bootcamp</div>
+      <div class="t-meta" id="t-meta"></div>
+    </div>
     <div class="t-live" id="t-live"><div class="t-dot"></div><span id="t-live-label">Live</span></div>
     <div class="lang-wrap">
       <button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button>
@@ -348,11 +354,11 @@ const UI = {
     doneOf:(a,b)=>`${a}/${b} selesai` }
 };
 const EXTRA = {
-  es:{ creds:'Credenciales emitidas', reached:'¡Hito logrado!', more:n=>` (+${n} más)` },
-  en:{ creds:'Credentials issued', reached:'Milestone reached!', more:n=>` (+${n} more)` },
-  pt:{ creds:'Credenciais emitidas', reached:'Marco alcançado!', more:n=>` (+${n})` },
-  fr:{ creds:'Attestations émises', reached:'Étape franchie !', more:n=>` (+${n})` },
-  id:{ creds:'Kredensial diterbitkan', reached:'Tahapan tercapai!', more:n=>` (+${n} lagi)` }
+  es:{ tab:'Tracker en vivo', creds:'Credenciales emitidas', reached:'¡Hito logrado!', more:n=>` (+${n} más)` },
+  en:{ tab:'Live Tracker', creds:'Credentials issued', reached:'Milestone reached!', more:n=>` (+${n} more)` },
+  pt:{ tab:'Tracker ao vivo', creds:'Credenciais emitidas', reached:'Marco alcançado!', more:n=>` (+${n})` },
+  fr:{ tab:'Suivi en direct', creds:'Attestations émises', reached:'Étape franchie !', more:n=>` (+${n})` },
+  id:{ tab:'Pelacak Langsung', creds:'Kredensial diterbitkan', reached:'Tahapan tercapai!', more:n=>` (+${n} lagi)` }
 };
 const VIEW_TXT = {
   es:{ live:'En vivo', journey:'Recorrido', title:'Así será nuestra semana', today:'Hoy', done:'Listo' },
@@ -496,6 +502,32 @@ function normalizeStatus(raw) {
   return 'pending';
 }
 
+/* ── Fechas del evento: "23/11/2026" + "27/11/2026" → "23–27 Nov 2026",
+   en el idioma activo. Si config trae event_dates explícito, se usa tal cual.
+   Si una fecha no se puede leer (DD/MM/AAAA o AAAA-MM-DD), se muestra cruda. ── */
+function parseSheetDate(raw) {
+  const s = (raw || '').trim();
+  let m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/^Date\((\d+),(\d+),(\d+)\)$/); // celdas tipo fecha vía gviz
+  if (m) return new Date(+m[1], +m[2], +m[3]);
+  return null;
+}
+function formatEventDates(config) {
+  if (config.event_dates) return config.event_dates;
+  const rs = config.date_start, re = config.date_end;
+  if (!rs) return '';
+  const a = parseSheetDate(rs), b = re ? parseSheetDate(re) : null;
+  if (!a || (re && !b)) return re ? `${rs} – ${re}` : rs;
+  const locale = { es: 'es-ES', en: 'en-GB', pt: 'pt-BR', fr: 'fr-FR', id: 'id-ID' }[currentLang] || 'en-GB';
+  try {
+    const f = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+    return (b && f.formatRange) ? f.formatRange(a, b) : f.format(a);
+  } catch (e) { return re ? `${rs} – ${re}` : rs; }
+}
+
 /* ── Construye el modelo de datos a partir de las filas del Sheet ── */
 function buildModel(configRows, milestoneRows) {
   const config = { ...CONFIG_DEFAULTS };
@@ -506,7 +538,6 @@ function buildModel(configRows, milestoneRows) {
   // Acepta también los nombres de campo que usa el Sheet actual
   if (config.bootcamp_name && config.event_title === CONFIG_DEFAULTS.event_title) config.event_title = config.bootcamp_name;
   if (!config.event_location && config.city) config.event_location = config.city;
-  if (!config.event_dates && config.date_start) config.event_dates = config.date_end ? `${config.date_start} – ${config.date_end}` : config.date_start;
 
   const items = milestoneRows
     .map(r => ({
@@ -579,8 +610,11 @@ async function render(model) {
   textsNeeded.push(config.event_title, config.event_location);
   const tr = await buildTranslator(textsNeeded, currentLang);
 
-  document.getElementById('t-logo').textContent =
-    [tr(config.event_title), tr(config.event_location), config.event_dates].filter(Boolean).join(' · ');
+  const eventDates = formatEventDates(config);
+  document.getElementById('t-logo').textContent = tr(config.event_title);
+  document.getElementById('t-meta').textContent =
+    [tr(config.event_location), eventDates].filter(Boolean).join(' · ');
+  document.title = [tr(config.event_title), (EXTRA[currentLang] || EXTRA.en).tab].filter(Boolean).join(' · ');
 
   const dayIdx = days.findIndex(d => d.day === currentDay.day);
   document.getElementById('day-tag').textContent = tr(currentDay.day_label);
@@ -953,7 +987,7 @@ function renderJourney(model, tr) {
   document.querySelectorAll('.view-btn').forEach(b => b.textContent = vt[b.dataset.view]);
   const { config, days, currentDay } = model;
   document.getElementById('j-kicker').textContent =
-    [tr(config.event_title), tr(config.event_location), config.event_dates].filter(Boolean).join(' · ');
+    [tr(config.event_title), tr(config.event_location), formatEventDates(config)].filter(Boolean).join(' · ');
   document.getElementById('j-title').textContent = vt.title;
   const jl = document.getElementById('j-logo'), pl = document.getElementById('logo-partner');
   if (pl && pl.classList.contains('ok') && !jl.classList.contains('ok')) { jl.src = pl.src; jl.classList.add('ok'); }
