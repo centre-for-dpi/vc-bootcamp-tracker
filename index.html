@@ -466,17 +466,48 @@ function loadGvizTab(gid) {
    Translate (gratis, sin key, pensado para widgets embebidos en sitios).
    Se cachea por texto+idioma para no repetir llamadas de red. ── */
 const translationCache = new Map();
+
+/* ── Términos que NUNCA se traducen. Google lee "VC" como venture capital
+   ("capital de riesgo") o lo invierte a "CV". Antes de traducir, cada término
+   se cambia por un marcador (ZQX0Q…) que Google deja intacto y acomoda en la
+   frase; después se restaura. Se pueden añadir más desde el Sheet con una
+   fila en config: field "keep_terms", value "BSSN|Dukcapil|…". ── */
+const DEFAULT_KEEP_TERMS = ['VC Bootcamp', 'trust registries', 'trust registry', 'VCs', 'VC'];
+let keepTerms = DEFAULT_KEEP_TERMS;
+function setKeepTerms(extra) {
+  const add = (extra || '').split('|').map(s => s.trim()).filter(Boolean);
+  const next = [...new Set([...DEFAULT_KEEP_TERMS, ...add])].sort((a, b) => b.length - a.length);
+  if (next.join('|') !== keepTerms.join('|')) { keepTerms = next; translationCache.clear(); }
+}
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function protectTerms(text) {
+  const used = [];
+  let out = text;
+  keepTerms.forEach(term => {
+    const re = new RegExp('(^|[^\\p{L}\\p{N}])(' + escapeRe(term) + ')(?=$|[^\\p{L}\\p{N}])', 'gu');
+    out = out.replace(re, (m, pre, hit) => { used.push(hit); return pre + 'ZQX' + (used.length - 1) + 'Q'; });
+  });
+  return { out, used };
+}
+function restoreTerms(text, used) {
+  const seen = new Set();
+  const restored = text.replace(/Z\s*Q\s*X\s*(\d+)\s*Q/gi, (m, i) => { seen.add(+i); return used[+i] ?? m; });
+  return seen.size === used.length ? restored : null; // marcador perdido → no confiar
+}
+
 async function translateText(text, targetLang) {
   const clean = (text || '').trim();
   if (!clean) return '';
   const key = targetLang + '::' + clean;
   if (translationCache.has(key)) return translationCache.get(key);
   try {
-    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' + targetLang + '&dt=t&q=' + encodeURIComponent(clean);
+    const { out: protectedText, used } = protectTerms(clean);
+    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' + targetLang + '&dt=t&q=' + encodeURIComponent(protectedText);
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    const translated = data[0].map(chunk => chunk[0]).join('');
+    const translated = restoreTerms(data[0].map(chunk => chunk[0]).join(''), used);
+    if (translated === null) throw new Error('marcador de término perdido');
     translationCache.set(key, translated);
     return translated;
   } catch (e) {
@@ -593,6 +624,7 @@ async function render(model) {
   const { config, days, items, currentDay, activeMilestone, lastDoneInDay, pct } = model;
 
   setLogos(config);
+  setKeepTerms(config.keep_terms);
   applyStaticStrings();
 
   if (!currentDay) {
